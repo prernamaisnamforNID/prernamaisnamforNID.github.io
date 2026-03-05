@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Pixel Sea Calendar</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Press Start 2P', monospace; font-size: 10px; }
+
+    .px-btn:hover { transform: translate(-2px,-2px); filter: brightness(1.25); }
+    .px-btn:active { transform: translate(2px,2px); }
+    .day-cell { cursor: pointer; transition: all 0.1s; position: relative; }
+    .day-cell:hover { transform: scale(1.2); z-index: 5; filter: brightness(1.4); }
+    .day-cell:hover::after { content:'🐟'; position:absolute; top:-14px; left:50%; transform:translateX(-50%); font-size:10px; pointer-events:none; }
+    .day-cell:active { transform: scale(0.9); }
+    .theme-btn:hover { transform: scale(1.15); }
+
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+    @keyframes float-anim { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-5px)} }
+    @keyframes fadeIn { from{opacity:0} to{opacity:1} }
+    @keyframes popIn { from{transform:scale(0.4) rotate(-8deg);opacity:0} to{transform:scale(1) rotate(0deg);opacity:1} }
+    @keyframes glow-anim { 0%,100%{text-shadow:0 0 6px currentColor} 50%{text-shadow:0 0 18px currentColor,0 0 30px currentColor} }
+
+    .float-fish { animation: float-anim 2.5s ease-in-out infinite; display:inline-block; }
+    .float-fish2 { animation: float-anim 2.5s ease-in-out infinite 0.8s; display:inline-block; }
+    .glow-title { animation: glow-anim 3s infinite; }
+    .blink-dot { animation: blink 1s infinite; }
+
+    #modal-overlay {
+      display: none;
+      position: fixed; inset: 0;
+      background: #00000099;
+      align-items: center; justify-content: center;
+      z-index: 100;
+      backdrop-filter: blur(3px);
+      animation: fadeIn 0.15s ease;
+    }
+    #modal-overlay.active { display: flex; }
+    #modal-box {
+      position: relative;
+      padding: 18px;
+      font-family: 'Press Start 2P', monospace;
+      animation: popIn 0.22s cubic-bezier(0.175,0.885,0.32,1.275);
+      min-width: 210px;
+      text-align: center;
+    }
+    .corner-pixel {
+      position: absolute;
+      width: 8px; height: 8px;
+    }
+  </style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+const PIXEL_FONT = "'Press Start 2P', monospace";
+const MONTHS = ["JANUARY","FEBRUARY","MARCH","APRIL","MAY","JUNE","JULY","AUGUST","SEPTEMBER","OCTOBER","NOVEMBER","DECEMBER"];
+const DAYS = ["SUN","MON","TUE","WED","THU","FRI","SAT"];
+const THEMES = [
+  { bg:"#0d1b2a", panel:"#1b2d40", accent:"#00e5ff", highlight:"#ffd93d", text:"#e0f7ff", sub:"#5ab4c5", name:"DEEP" },
+  { bg:"#1a0a2e", panel:"#2d1b45", accent:"#ff6bff", highlight:"#7fff7f", text:"#ffe0ff", sub:"#c08cc8", name:"CORAL" },
+  { bg:"#0a1f0a", panel:"#142814", accent:"#00ff88", highlight:"#ffaa00", text:"#d4ffd4", sub:"#60a060", name:"KELP" },
+  { bg:"#1a0d00", panel:"#2e1a00", accent:"#ff8c42", highlight:"#00e5ff", text:"#fff0d4", sub:"#c08040", name:"ABYSS" },
+];
+const T = -1;
+const CREATURES = [
+  { name:"CLOWNFISH", palette:["#ff6a00","#ffffff","#1a1a1a","#ff8c33","#ffe0b2"],
+    pixels:[[T,T,T,0,0,0,0,T,T,T],[T,T,0,3,3,0,3,0,T,T],[T,0,3,1,3,1,3,3,0,T],[0,3,1,1,1,1,1,3,3,0],[0,3,1,2,1,1,1,3,3,0],[0,3,1,1,1,1,1,3,3,0],[T,0,3,1,3,1,3,3,0,T],[T,T,0,3,0,0,3,0,T,T],[T,T,T,0,0,0,0,T,T,T],[T,T,T,T,T,T,T,T,T,T]],
+    anim:"swim", bubbles:true },
+  { name:"OCTOPUS", palette:["#cc44cc","#ff88ff","#aa22aa","#ffffff","#330033"],
+    pixels:[[T,T,0,0,0,0,0,0,T,T],[T,0,1,1,0,0,1,1,0,T],[0,1,3,1,0,0,1,3,1,0],[0,1,1,1,1,1,1,1,1,0],[0,0,1,1,1,1,1,1,0,0],[T,0,0,0,0,0,0,0,0,T],[T,0,T,0,T,T,0,T,0,T],[0,T,T,0,T,T,0,T,T,0],[0,T,T,0,T,T,0,T,T,0],[T,T,T,T,T,T,T,T,T,T]],
+    anim:"bob", bubbles:true },
+  { name:"JELLYFISH", palette:["#88ccff","#aaddff","#ffffff","#cceeff","#4499cc"],
+    pixels:[[T,T,T,2,2,2,2,T,T,T],[T,T,2,0,0,0,0,2,T,T],[T,2,0,1,0,0,1,0,2,T],[2,0,1,1,0,0,1,1,0,2],[2,0,0,0,0,0,0,0,0,2],[2,0,0,3,0,0,3,0,0,2],[T,2,0,0,0,0,0,0,2,T],[T,T,2,2,4,4,2,2,T,T],[T,T,T,4,T,T,4,T,T,T],[T,T,4,T,T,T,T,4,T,T]],
+    anim:"pulse", bubbles:false },
+  { name:"CRAB", palette:["#dd4422","#ff6644","#aa2200","#ffaa88","#ffffff"],
+    pixels:[[0,T,T,T,T,T,T,T,T,0],[T,0,T,T,T,T,T,T,0,T],[T,T,0,2,2,2,2,0,T,T],[T,T,2,1,1,1,1,2,T,T],[0,2,1,4,1,1,4,1,2,0],[2,2,1,1,1,1,1,1,2,2],[2,T,2,1,1,1,1,2,T,2],[T,T,2,2,T,T,2,2,T,T],[T,T,2,T,T,T,T,2,T,T],[T,T,T,T,T,T,T,T,T,T]],
+    anim:"scuttle", bubbles:false },
+  { name:"SEAHORSE", palette:["#ffaa33","#ffcc77","#cc7700","#ffffff","#ffdd99"],
+    pixels:[[T,T,T,T,0,0,T,T,T,T],[T,T,T,0,1,1,0,T,T,T],[T,T,T,0,1,3,0,T,T,T],[T,T,0,1,0,0,T,T,T,T],[T,T,0,1,1,0,2,T,T,T],[T,T,T,0,1,1,0,T,T,T],[T,T,T,0,1,1,0,T,T,T],[T,T,T,2,0,1,0,T,T,T],[T,T,T,T,2,0,T,T,T,T],[T,T,T,T,T,T,T,T,T,T]],
+    anim:"float", bubbles:true },
+  { name:"STARFISH", palette:["#ff6644","#ff9977","#cc3322","#ffccaa","#ffffff"],
+    pixels:[[T,T,T,T,0,0,T,T,T,T],[T,T,T,0,1,1,0,T,T,T],[T,0,T,0,1,1,0,T,0,T],[T,0,0,0,1,1,0,0,0,T],[0,1,1,1,1,1,1,1,1,0],[0,1,1,1,1,1,1,1,1,0],[T,0,0,0,1,1,0,0,0,T],[T,T,0,T,1,1,T,0,T,T],[T,T,0,T,0,0,T,0,T,T],[T,T,T,T,T,T,T,T,T,T]],
+    anim:"spin", bubbles:false },
+  { name:"PUFFERFISH", palette:["#eecc44","#ffee88","#cc9900","#333300","#ffffff"],
+    pixels:[[T,T,0,0,0,0,0,0,T,T],[T,0,2,2,2,2,2,2,0,T],[0,2,1,0,1,1,0,1,2,0],[0,2,1,3,1,1,3,1,2,0],[0,2,1,1,1,1,1,1,2,0],[0,2,0,1,1,1,1,0,2,0],[T,0,2,2,4,2,2,2,0,T],[T,T,0,0,4,0,0,0,T,T],[T,T,T,T,4,T,T,T,T,T],[T,T,T,T,T,T,T,T,T,T]],
+    anim:"puff", bubbles:true },
+  { name:"WHALE", palette:["#4488cc","#66aaee","#224466","#ffffff","#88bbff"],
+    pixels:[[T,T,T,T,T,T,T,T,T,T],[T,T,T,T,T,0,0,T,T,T],[T,0,0,0,0,0,1,0,T,T],[0,1,1,1,0,0,1,1,0,T],[0,1,1,1,1,3,1,1,1,0],[0,1,1,1,1,1,1,1,1,0],[T,0,1,1,1,1,1,1,0,T],[T,T,0,0,1,0,1,0,T,T],[T,T,T,0,T,T,T,0,T,T],[T,T,T,T,T,T,T,T,T,T]],
+    anim:"swim", bubbles:true },
+  { name:"TURTLE", palette:["#44aa44","#66cc66","#226622","#eecc88","#ffffff"],
+    pixels:[[T,T,T,T,0,0,T,T,T,T],[T,T,T,2,2,2,2,T,T,T],[T,0,T,2,0,0,2,T,0,T],[0,2,0,0,0,0,0,0,2,0],[0,2,0,1,0,0,1,0,2,0],[0,2,0,0,0,0,0,0,2,0],[T,0,T,2,0,0,2,T,0,T],[T,T,T,2,2,2,2,T,T,T],[T,T,T,T,3,3,T,T,T,T],[T,T,T,T,T,T,T,T,T,T]],
+    anim:"bob", bubbles:false },
+  { name:"ANGLERFISH", palette:["#223355","#334466","#112244","#ffff44","#ff4444"],
+    pixels:[[T,T,T,T,T,T,T,0,T,T],[T,T,T,T,T,T,T,3,T,T],[T,T,T,T,T,T,0,3,T,T],[T,0,0,0,0,0,1,2,T,T],[0,1,4,1,0,0,1,1,0,T],[0,1,1,1,1,1,1,1,0,T],[T,0,1,1,0,0,1,0,T,T],[T,T,0,0,2,2,0,T,T,T],[T,T,T,T,T,T,T,T,T,T],[T,T,T,T,T,T,T,T,T,T]],
+    anim:"lurk", bubbles:true },
+  { name:"SHRIMP", palette:["#ff8866","#ffaa88","#cc4422","#ffffff","#ffccaa"],
+    pixels:[[T,T,T,T,T,0,0,T,T,T],[T,T,T,T,0,2,2,0,T,T],[T,T,T,0,1,1,2,T,T,T],[T,T,T,0,1,1,0,T,0,T],[T,T,0,1,1,0,T,T,0,T],[T,0,1,1,0,T,T,T,T,T],[0,2,1,0,T,T,T,T,T,T],[0,T,0,T,T,T,T,T,T,T],[T,T,T,T,T,T,T,T,T,T],[T,T,T,T,T,T,T,T,T,T]],
+    anim:"dart", bubbles:false },
+  { name:"SHARK", palette:["#778899","#aabbcc","#556677","#ffffff","#ff3322"],
+    pixels:[[T,T,T,T,T,T,0,T,T,T],[T,T,T,T,T,0,1,T,T,T],[T,0,0,0,0,0,0,0,0,T],[0,2,2,0,0,0,0,0,1,0],[0,2,2,0,3,0,0,1,1,0],[0,0,0,0,0,0,0,0,1,0],[T,T,0,0,0,0,0,0,0,T],[T,T,T,0,T,T,0,T,T,T],[T,T,T,T,T,T,T,T,T,T],[T,T,T,T,T,T,T,T,T,T]],
+    anim:"swim", bubbles:false },
+];
+
+function getDaysInMonth(y,m){ return new Date(y,m+1,0).getDate(); }
+function getFirstDay(y,m){ return new Date(y,m,1).getDay(); }
+
+// ---- State ----
+const today = new Date();
+let state = {
+  month: today.getMonth(),
+  year: today.getFullYear(),
+  themeIdx: 0,
+  selectedDate: null,
+  rafId: null,
+  animStart: null,
+};
+
+function getTheme(){ return THEMES[state.themeIdx]; }
+
+// ---- Build Calendar DOM ----
+function buildCalendar() {
+  const app = document.getElementById('app');
+  app.innerHTML = '';
+  const theme = getTheme();
+
+  // Body bg
+  document.body.style.background = theme.bg;
+  document.body.style.backgroundImage = `radial-gradient(${theme.accent}15 1px, transparent 1px)`;
+  document.body.style.backgroundSize = '20px 20px';
+  document.body.style.transition = 'background 0.4s';
+  document.body.style.minHeight = '100vh';
+  document.body.style.display = 'flex';
+  document.body.style.alignItems = 'center';
+  document.body.style.justifyContent = 'center';
+  document.body.style.padding = '20px';
+
+  const wrap = document.createElement('div');
+  wrap.style.cssText = `width:100%;max-width:420px;`;
+
+  // Title
+  const titleRow = document.createElement('div');
+  titleRow.className = 'glow-title';
+  titleRow.style.cssText = `text-align:center;margin-bottom:8px;color:${theme.accent};font-size:7px;letter-spacing:3px;display:flex;align-items:center;justify-content:center;gap:8px;`;
+  titleRow.innerHTML = `<span class="float-fish">🐠</span> PIXEL SEA CAL <span class="float-fish2">🐙</span>`;
+  wrap.appendChild(titleRow);
+
+  const sub = document.createElement('div');
+  sub.style.cssText = `text-align:center;color:${theme.sub};font-size:6px;margin-bottom:12px;letter-spacing:1px;`;
+  sub.textContent = '▼ CLICK ANY DATE TO MEET A SEA FRIEND ▼';
+  wrap.appendChild(sub);
+
+  // Panel
+  const panel = document.createElement('div');
+  panel.style.cssText = `border:4px solid ${theme.accent};box-shadow:5px 5px 0 ${theme.accent}55;background:${theme.panel};padding:16px;`;
+
+  // Nav
+  const nav = document.createElement('div');
+  nav.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;';
+  const btnStyle = `background:${theme.accent};color:${theme.bg};border:3px solid ${theme.text};box-shadow:3px 3px 0 ${theme.bg};font-family:${PIXEL_FONT};font-size:10px;cursor:pointer;padding:6px 10px;transition:all 0.1s;`;
+  const prevBtn = document.createElement('button');
+  prevBtn.className = 'px-btn'; prevBtn.style.cssText = btnStyle; prevBtn.textContent = '◄';
+  prevBtn.onclick = () => { if(state.month===0){state.month=11;state.year--;}else state.month--; buildCalendar(); };
+  const nextBtn = document.createElement('button');
+  nextBtn.className = 'px-btn'; nextBtn.style.cssText = btnStyle; nextBtn.textContent = '►';
+  nextBtn.onclick = () => { if(state.month===11){state.month=0;state.year++;}else state.month++; buildCalendar(); };
+
+  const monthLabel = document.createElement('div');
+  monthLabel.style.textAlign = 'center';
+  monthLabel.innerHTML = `<div style="color:${theme.highlight};font-size:11px;margin-bottom:4px;letter-spacing:2px;">${MONTHS[state.month]}</div><div style="color:${theme.sub};font-size:8px;">${state.year}</div>`;
+
+  nav.appendChild(prevBtn); nav.appendChild(monthLabel); nav.appendChild(nextBtn);
+  panel.appendChild(nav);
+
+  // Day headers
+  const headerGrid = document.createElement('div');
+  headerGrid.style.cssText = 'display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-bottom:6px;';
+  DAYS.forEach((d,i) => {
+    const h = document.createElement('div');
+    h.style.cssText = `text-align:center;color:${i===0?theme.accent:i===6?theme.highlight:theme.sub};font-size:7px;padding:4px 0;border-bottom:2px solid ${theme.accent}44;`;
+    h.textContent = d;
+    headerGrid.appendChild(h);
+  });
+  panel.appendChild(headerGrid);
+
+  // Day cells
+  const daysInMonth = getDaysInMonth(state.year, state.month);
+  const firstDay = getFirstDay(state.year, state.month);
+  const cells = [];
+  for(let i=0;i<firstDay;i++) cells.push(null);
+  for(let d=1;d<=daysInMonth;d++) cells.push(d);
+  while(cells.length%7!==0) cells.push(null);
+
+  const grid = document.createElement('div');
+  grid.style.cssText = 'display:grid;grid-template-columns:repeat(7,1fr);gap:3px;';
+
+  cells.forEach((d,i) => {
+    const dw = i%7;
+    const isT = d===today.getDate() && state.month===today.getMonth() && state.year===today.getFullYear();
+    const cell = document.createElement('div');
+    cell.style.cssText = `aspect-ratio:1;display:flex;align-items:center;justify-content:center;font-size:9px;position:relative;
+      background:${d?(isT?theme.accent:`${theme.bg}88`):'transparent'};
+      color:${d?(isT?theme.bg:(dw===0?theme.accent:dw===6?theme.highlight:theme.text)):'transparent'};
+      border:${d?(isT?`2px solid ${theme.highlight}`:`2px solid ${theme.accent}44`):'2px solid transparent'};
+      box-shadow:${isT?`0 0 12px ${theme.accent}aa, 2px 2px 0 ${theme.highlight}`:'none'};`;
+    if(d) {
+      cell.className = 'day-cell';
+      cell.textContent = d;
+      cell.onclick = () => openModal(d);
+    }
+    if(isT) {
+      const dot = document.createElement('span');
+      dot.className = 'blink-dot';
+      dot.style.cssText = `position:absolute;bottom:2px;left:50%;transform:translateX(-50%);width:4px;height:4px;background:${theme.highlight};display:block;`;
+      cell.appendChild(dot);
+    }
+    grid.appendChild(cell);
+  });
+  panel.appendChild(grid);
+
+  // Footer
+  const footer = document.createElement('div');
+  footer.style.cssText = `margin-top:14px;text-align:center;color:${theme.sub};font-size:7px;border-top:2px dashed ${theme.accent}44;padding-top:10px;letter-spacing:1px;`;
+  footer.textContent = `TODAY: ${DAYS[today.getDay()]} ${today.getDate()} ${MONTHS[today.getMonth()].slice(0,3)} ${today.getFullYear()}`;
+  panel.appendChild(footer);
+  wrap.appendChild(panel);
+
+  // Theme switcher
+  const themesRow = document.createElement('div');
+  themesRow.style.cssText = 'display:flex;justify-content:center;gap:8px;margin-top:14px;';
+  THEMES.forEach((t,i) => {
+    const btn = document.createElement('button');
+    btn.className = 'theme-btn';
+    btn.title = t.name;
+    btn.style.cssText = `width:22px;height:22px;background:${t.accent};border:${i===state.themeIdx?'3px solid #fff':`2px solid ${t.accent}88`};box-shadow:${i===state.themeIdx?`0 0 8px ${t.accent}`:'none'};cursor:pointer;transition:all 0.15s;`;
+    btn.onclick = () => { state.themeIdx=i; buildCalendar(); };
+    themesRow.appendChild(btn);
+  });
+  wrap.appendChild(themesRow);
+
+  const modeName = document.createElement('div');
+  modeName.style.cssText = `text-align:center;color:${getTheme().sub};font-size:7px;margin-top:6px;letter-spacing:2px;`;
+  modeName.textContent = `${THEMES[state.themeIdx].name} MODE`;
+  wrap.appendChild(modeName);
+
+  app.appendChild(wrap);
+
+  // Re-attach modal if open
+  buildModal();
+}
+
+// ---- Modal ----
+function openModal(date) {
+  state.selectedDate = date;
+  buildModal();
+  document.getElementById('modal-overlay').classList.add('active');
+  startCreatureAnim();
+}
+function closeModal() {
+  state.selectedDate = null;
+  document.getElementById('modal-overlay').classList.remove('active');
+  if(state.rafId){ cancelAnimationFrame(state.rafId); state.rafId=null; }
+}
+
+function buildModal() {
+  let overlay = document.getElementById('modal-overlay');
+  if(!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'modal-overlay';
+    overlay.onclick = (e) => { if(e.target===overlay) closeModal(); };
+    document.body.appendChild(overlay);
+  }
+  if(!state.selectedDate) return;
+
+  const theme = getTheme();
+  const creatureIdx = ((state.selectedDate * 7 + state.month * 3 + state.year) % CREATURES.length);
+  const creature = CREATURES[creatureIdx];
+
+  const SCALE = 18, W = 10, H = 10;
+  const CW = W*SCALE, CH = H*SCALE+64;
+
+  overlay.innerHTML = '';
+  const box = document.createElement('div');
+  box.id = 'modal-box';
+  box.style.cssText = `background:${theme.panel};border:4px solid ${theme.accent};box-shadow:8px 8px 0 ${theme.accent}44, 0 0 60px ${theme.accent}22;`;
+
+  // Corners
+  [{top:'0',left:'0'},{top:'0',right:'0'},{bottom:'0',left:'0'},{bottom:'0',right:'0'}].forEach(pos => {
+    const c = document.createElement('div');
+    c.className = 'corner-pixel';
+    Object.assign(c.style, pos, {background: theme.highlight});
+    box.appendChild(c);
+  });
+
+  const seaFriendLabel = document.createElement('div');
+  seaFriendLabel.style.cssText = `color:${theme.highlight};font-size:7px;text-align:center;margin-bottom:12px;letter-spacing:3px;text-shadow:0 0 10px ${theme.highlight};`;
+  seaFriendLabel.textContent = '~ SEA FRIEND ~';
+  box.appendChild(seaFriendLabel);
+
+  const canvasWrap = document.createElement('div');
+  canvasWrap.style.cssText = `border:3px solid ${theme.accent}66;line-height:0;display:inline-block;`;
+  const canvas = document.createElement('canvas');
+  canvas.id = 'creature-canvas';
+  canvas.width = CW; canvas.height = CH;
+  canvas.style.cssText = 'image-rendering:pixelated;display:block;';
+  canvasWrap.appendChild(canvas);
+  box.appendChild(canvasWrap);
+
+  const dateLabel = document.createElement('div');
+  dateLabel.style.cssText = `margin-top:12px;text-align:center;color:${theme.sub};font-size:6px;border-top:2px dashed ${theme.accent}44;padding-top:8px;letter-spacing:1px;`;
+  dateLabel.textContent = `${MONTHS[state.month].slice(0,3)} ${String(state.selectedDate).padStart(2,'0')}, ${state.year}`;
+  box.appendChild(dateLabel);
+
+  const closeBtn = document.createElement('button');
+  closeBtn.style.cssText = `display:block;margin:10px auto 0;background:${theme.accent};color:${theme.bg};border:3px solid ${theme.text};box-shadow:3px 3px 0 ${theme.bg};font-family:${PIXEL_FONT};font-size:7px;cursor:pointer;padding:7px 16px;letter-spacing:1px;transition:all 0.1s;`;
+  closeBtn.textContent = 'CLOSE ✕';
+  closeBtn.onclick = closeModal;
+  box.appendChild(closeBtn);
+
+  overlay.appendChild(box);
+}
+
+function startCreatureAnim() {
+  if(state.rafId) cancelAnimationFrame(state.rafId);
+  state.animStart = null;
+  const loop = (ts) => {
+    if(!state.animStart) state.animStart = ts;
+    const t = (ts - state.animStart) / 1000;
+    drawCreature(t);
+    state.rafId = requestAnimationFrame(loop);
+  };
+  state.rafId = requestAnimationFrame(loop);
+}
+
+function drawCreature(t) {
+  const canvas = document.getElementById('creature-canvas');
+  if(!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const theme = getTheme();
+  const creatureIdx = ((state.selectedDate * 7 + state.month * 3 + state.year) % CREATURES.length);
+  const creature = CREATURES[creatureIdx];
+  const SCALE=18, W=10, H=10, CW=W*SCALE, CH=H*SCALE+64;
+
+  ctx.clearRect(0,0,CW,CH);
+
+  // Ocean bg gradient
+  const grad = ctx.createLinearGradient(0,0,0,CH);
+  grad.addColorStop(0, theme.panel);
+  grad.addColorStop(1, theme.bg);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0,0,CW,CH);
+
+  // Caustic shimmer
+  for(let c=0;c<4;c++){
+    const cx2=(Math.sin(t*0.7+c*1.5)*0.5+0.5)*CW;
+    const cy2=(Math.sin(t*0.4+c*0.9)*0.5+0.5)*(H*SCALE);
+    const g2=ctx.createRadialGradient(cx2,cy2,0,cx2,cy2,30);
+    g2.addColorStop(0,theme.accent+'22'); g2.addColorStop(1,'transparent');
+    ctx.fillStyle=g2; ctx.fillRect(0,0,CW,H*SCALE);
+  }
+
+  // Bubbles
+  if(creature.bubbles){
+    for(let b=0;b<6;b++){
+      const bx=(Math.sin(t*0.4+b*1.1)*0.4+0.5)*CW;
+      const progress=((t*0.25+b*0.17)%1.0);
+      const by=(1-progress)*(H*SCALE+20);
+      const r=2+(b%3);
+      ctx.save(); ctx.strokeStyle=theme.accent+'55'; ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.arc(bx,by,r,0,Math.PI*2); ctx.stroke(); ctx.restore();
+    }
+  }
+
+  // Anim offsets
+  let ox=0,oy=0,sx=1,sy=1,rot=0;
+  const {anim}=creature;
+  if(anim==='swim'){ox=Math.sin(t*2)*10;oy=Math.sin(t*4)*3;}
+  else if(anim==='bob'){oy=Math.sin(t*1.5)*7;}
+  else if(anim==='pulse'){const p=0.82+Math.sin(t*2.2)*0.18;sx=p;sy=p;}
+  else if(anim==='scuttle'){ox=Math.sin(t*3)*9;oy=Math.abs(Math.sin(t*6))*3;}
+  else if(anim==='float'){ox=Math.sin(t*1.1)*7;oy=Math.sin(t*0.7)*9;rot=Math.sin(t*1.1)*0.18;}
+  else if(anim==='spin'){rot=t*0.9;}
+  else if(anim==='puff'){const p=0.78+Math.abs(Math.sin(t*1.4))*0.38;sx=p;sy=p;}
+  else if(anim==='lurk'){ox=Math.sin(t*0.6)*13;oy=Math.sin(t*0.25)*5;}
+  else if(anim==='dart'){ox=Math.sin(t*4.5)*15;oy=Math.sin(t*9)*6;}
+
+  // Draw pixels
+  ctx.save();
+  const cx=CW/2, cy=(H*SCALE)/2;
+  ctx.translate(cx+ox,cy+oy); ctx.rotate(rot); ctx.scale(sx,sy); ctx.translate(-cx,-cy);
+  creature.pixels.forEach((row,ry)=>{
+    row.forEach((ci,rx)=>{
+      if(ci===T) return;
+      ctx.fillStyle=creature.palette[ci];
+      ctx.fillRect(rx*SCALE,ry*SCALE,SCALE-1,SCALE-1);
+    });
+  });
+  ctx.restore();
+
+  // Labels
+  ctx.fillStyle=theme.accent; ctx.font=`bold 7px ${PIXEL_FONT}`; ctx.textAlign='center';
+  ctx.fillText(`DAY ${String(state.selectedDate).padStart(2,'0')}`,CW/2,H*SCALE+22);
+  ctx.fillStyle=theme.sub; ctx.font=`6px ${PIXEL_FONT}`;
+  ctx.fillText(creature.name,CW/2,H*SCALE+42);
+
+  // Dots
+  for(let d=0;d<5;d++){
+    const dx=CW/2+(d-2)*12;
+    const active=Math.floor(t*2+0.5)%5===d;
+    ctx.fillStyle=active?theme.highlight:theme.accent+'44';
+    ctx.fillRect(dx-2,H*SCALE+54,4,4);
+  }
+}
+
+// Init
+buildCalendar();
+</script>
+</body>
+</html>
